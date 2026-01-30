@@ -4,23 +4,28 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
 
 	"github.com/armon/go-socks5"
 )
 
 type Config struct {
-	ControlServer string `json:"server"`
-	HTTPProxy     string `json:"http_proxy"`
-	SOCKSProxy    string `json:"socks_proxy"`
-	Autostart     bool   `json:"autostart"`
+	ControlServer     string `json:"server"`
+	HTTPProxyAddress  string `json:"http_proxy"`
+	SOCKSProxyAddress string `json:"socks_proxy"`
+	//Autostart     bool   `json:"autostart"`
 }
 
 const BACKEND_ADDR = "mc.mrpickle.ca:8989"
+
+var CONFIGS *Config
 
 type ProxyManager struct {
 	httpListener  net.Listener
@@ -30,21 +35,60 @@ type ProxyManager struct {
 	running bool
 }
 
+func LoadConfig(path string) (*Config, error) {
+	var cfg Config
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			cfg = Config{
+				"localhost:8080",
+				":8081",
+				":8082",
+			}
+			if err := SaveConfig(path, &cfg); err != nil {
+				return nil, err
+			}
+			return &cfg, nil
+		}
+		return nil, err
+	}
+	// File exists → parse JSON
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
+}
+func SaveConfig(path string, cfg *Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
 func main() {
 	fmt.Println("Loading from CLI, default configs used")
 	fmt.Println("Address: " + BACKEND_ADDR)
 	proxyManager := ProxyManager{}
-	proxyManager.Start()
+	cfg, err := LoadConfig("config.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	CONFIGS = cfg
+	proxyManager.Start(cfg)
 	for proxyManager.running {
 
 	}
 }
 
-func (manager *ProxyManager) Start() error {
+func (manager *ProxyManager) Start(configs *Config) error {
 	if manager.running {
 		return nil
 	}
-	manager.backendAddr = BACKEND_ADDR
+	manager.backendAddr = configs.ControlServer
 	manager.running = true
 	go func() {
 		manager.httpListener = startHttps()
@@ -73,7 +117,7 @@ func (manager *ProxyManager) Stop() error {
 
 func startHttps() net.Listener {
 	fmt.Println("client starting...")
-	listener, err := net.Listen("tcp", ":8081")
+	listener, err := net.Listen("tcp", CONFIGS.HTTPProxyAddress)
 	log.Println("HTTP Proxy listnening on :8081")
 	if err != nil {
 		log.Fatal(err)
@@ -115,11 +159,11 @@ func socksDial(ctx context.Context, network, addr string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	config := &tls.Config{
+	tlsConfigs := &tls.Config{
 		InsecureSkipVerify: true, // only for testing/self-signed certs
 	}
 
-	serverConn, err := tls.Dial("tcp", BACKEND_ADDR, config)
+	serverConn, err := tls.Dial("tcp", CONFIGS.ControlServer, tlsConfigs)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +187,7 @@ func handleHTTP(conn net.Conn) {
 		}
 		conn.Close()
 	}()
-	config := &tls.Config{
+	tlsConfigs := &tls.Config{
 		InsecureSkipVerify: true, // only for testing/self-signed certs
 	}
 
@@ -162,7 +206,7 @@ func handleHTTP(conn net.Conn) {
 	hostPortCombo := strings.Split(list[1], ":")
 	host := strings.TrimSpace(hostPortCombo[0])
 	port := strings.TrimSpace(hostPortCombo[1])
-	outbound, err := tls.Dial("tcp", BACKEND_ADDR, config)
+	outbound, err := tls.Dial("tcp", CONFIGS.ControlServer, tlsConfigs)
 	if err != nil {
 		log.Println(err)
 		return

@@ -3,25 +3,38 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
 )
 
-var PORT = ":8080"
+type ServerConfigs struct {
+	PORT          int    `json:"PORT"`
+	CERT_LOCATION string `json:"CERT_LOCATION"`
+	KEY_LOCATION  string `json:"KEY_LOCATION"`
+}
 
 func main() {
-
 	log.Println("Server starting")
-	cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
+
+	//load configs
+	cfg, err := LoadConfig("config.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cert, err := tls.LoadX509KeyPair(cfg.CERT_LOCATION, cfg.KEY_LOCATION)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	config := &tls.Config{Certificates: []tls.Certificate{cert}}
 
-	listner, error := tls.Listen("tcp4", PORT, config)
+	listner, error := tls.Listen("tcp4", ":"+string(rune(cfg.PORT)), config)
 
 	if error != nil {
 		log.Fatal(error)
@@ -37,6 +50,40 @@ func main() {
 		go handleConnection(connection)
 
 	}
+}
+
+func LoadConfig(path string) (*ServerConfigs, error) {
+	var cfg ServerConfigs
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			cfg = ServerConfigs{
+				8080,
+				"cert.pem",
+				"key.pem",
+			}
+			if err := SaveConfig(path, &cfg); err != nil {
+				return nil, err
+			}
+			return &cfg, nil
+		}
+		return nil, err
+	}
+	// File exists → parse JSON
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
+}
+func SaveConfig(path string, cfg *ServerConfigs) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
 }
 
 func handleConnection(connection net.Conn) {
