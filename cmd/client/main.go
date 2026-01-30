@@ -73,7 +73,7 @@ func main() {
 	fmt.Println("Loading from CLI, default configs used")
 
 	proxyManager := ProxyManager{}
-	cfg, err := LoadConfig("cliientConfig.json")
+	cfg, err := LoadConfig("clientConfig.json")
 	fmt.Println("Address: " + cfg.ControlServer)
 	if err != nil {
 		log.Fatal(err)
@@ -207,6 +207,14 @@ func handleHTTP(conn net.Conn) {
 	hostPortCombo := strings.Split(list[1], ":")
 	host := strings.TrimSpace(hostPortCombo[0])
 	port := strings.TrimSpace(hostPortCombo[1])
+	if host == "http" || host == "https" {
+		host = strings.TrimSpace(hostPortCombo[1])
+		if host == "http" {
+			port = "80"
+		} else {
+			port = "443"
+		}
+	}
 	outbound, err := tls.Dial("tcp", CONFIGS.ControlServer, tlsConfigs)
 	if err != nil {
 		log.Println(err)
