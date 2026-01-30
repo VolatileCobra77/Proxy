@@ -1,0 +1,5 @@
+{
+  "ADDRESS": ":8080",
+  "CERT_LOCATION": "cert.pem",
+  "KEY_LOCATION": "key.pem"
+}

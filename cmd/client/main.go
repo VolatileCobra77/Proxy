@@ -23,8 +23,6 @@ type Config struct {
 	//Autostart     bool   `json:"autostart"`
 }
 
-const BACKEND_ADDR = "mc.mrpickle.ca:8989"
-
 var CONFIGS *Config
 
 type ProxyManager struct {
@@ -37,10 +35,11 @@ type ProxyManager struct {
 
 func LoadConfig(path string) (*Config, error) {
 	var cfg Config
-
+	log.Println("Loading configs from " + path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			log.Println("Configs file not present, creating one")
 			cfg = Config{
 				"localhost:8080",
 				":8081",
@@ -62,6 +61,7 @@ func LoadConfig(path string) (*Config, error) {
 }
 func SaveConfig(path string, cfg *Config) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
+	log.Println("Creating configs at " + path)
 	if err != nil {
 		return err
 	}
@@ -71,9 +71,10 @@ func SaveConfig(path string, cfg *Config) error {
 
 func main() {
 	fmt.Println("Loading from CLI, default configs used")
-	fmt.Println("Address: " + BACKEND_ADDR)
+
 	proxyManager := ProxyManager{}
-	cfg, err := LoadConfig("config.json")
+	cfg, err := LoadConfig("cliientConfig.json")
+	fmt.Println("Address: " + cfg.ControlServer)
 	if err != nil {
 		log.Fatal(err)
 	}

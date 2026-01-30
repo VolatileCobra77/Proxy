@@ -13,7 +13,7 @@ import (
 )
 
 type ServerConfigs struct {
-	PORT          int    `json:"PORT"`
+	ADDRESS       string `json:"ADDRESS"`
 	CERT_LOCATION string `json:"CERT_LOCATION"`
 	KEY_LOCATION  string `json:"KEY_LOCATION"`
 }
@@ -22,7 +22,7 @@ func main() {
 	log.Println("Server starting")
 
 	//load configs
-	cfg, err := LoadConfig("config.json")
+	cfg, err := LoadConfig("serverConfig.json")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func main() {
 
 	config := &tls.Config{Certificates: []tls.Certificate{cert}}
 
-	listner, error := tls.Listen("tcp4", ":"+string(rune(cfg.PORT)), config)
+	listner, error := tls.Listen("tcp4", cfg.ADDRESS, config)
 
 	if error != nil {
 		log.Fatal(error)
@@ -59,7 +59,7 @@ func LoadConfig(path string) (*ServerConfigs, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			cfg = ServerConfigs{
-				8080,
+				":8080",
 				"cert.pem",
 				"key.pem",
 			}
