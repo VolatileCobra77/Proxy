@@ -10,20 +10,51 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/armon/go-socks5"
 )
 
 type Config struct {
-	ControlServer     string `json:"server"`
-	HTTPProxyAddress  string `json:"http_proxy"`
-	SOCKSProxyAddress string `json:"socks_proxy"`
+	ControlServer         string    `json:"server"`
+	HTTPProxyAddress      string    `json:"http_proxy"`
+	SOCKSProxyAddress     string    `json:"socks_proxy"`
+	ProxyDiscoveryAddress string    `json:"proxy_discovery_address"`
+	Mode                  ProxyMode `json:"mode"`
+	AutoSetSystem         bool      `json:"auto_set_system_proxy"`
+	FilteringEnabled      bool      `json:"filtering_enabled"`
+	WhitelistMode         bool      `json:"use_whitelist"`
+	Blacklist             []string  `json:"blocked_sites"`
+	Whitelist             []string  `json:"allowed_sites"`
 	//Autostart     bool   `json:"autostart"`
 }
 
+// ProxyMode is a string type for your proxy mode enum
+type ProxyMode string
+
+// Define constants for allowed values
+const (
+	ModeWindows ProxyMode = "WINDOWS"
+	ModeBrowser ProxyMode = "BROWSER"
+)
+
+func (m ProxyMode) String() string {
+	switch m {
+	case ModeWindows:
+		return "WINDOWS"
+	case ModeBrowser:
+		return "BROWSER"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 var CONFIGS *Config
+
+const HAS_ROOT_ACCESS bool = false
 
 type ProxyManager struct {
 	httpListener  net.Listener
@@ -44,6 +75,13 @@ func LoadConfig(path string) (*Config, error) {
 				"localhost:8080",
 				":8081",
 				":8082",
+				":8083",
+				ModeBrowser,
+				false,
+				false,
+				false,
+				[]string{},
+				[]string{},
 			}
 			if err := SaveConfig(path, &cfg); err != nil {
 				return nil, err
@@ -91,9 +129,12 @@ func (manager *ProxyManager) Start(configs *Config) error {
 	}
 	manager.backendAddr = configs.ControlServer
 	manager.running = true
-	go func() {
-		manager.httpListener = startHttps()
-	}()
+	if CONFIGS.Mode == ModeBrowser {
+
+		go func() {
+			manager.httpListener = startHttps()
+		}()
+	}
 	go func() {
 		manager.socksListener = startSocks5()
 
@@ -116,6 +157,27 @@ func (manager *ProxyManager) Stop() error {
 	return nil
 }
 
+func startWebserver() {
+	http.HandleFunc("/proxy.pac", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ns-proxy-autoconfig")
+		var proxyAddr string
+
+		if CONFIGS.Mode == ModeWindows {
+			proxyAddr = CONFIGS.SOCKSProxyAddress
+		} else {
+			proxyAddr = CONFIGS.HTTPProxyAddress
+		}
+
+		pac := fmt.Sprintf(`function FindProxyForURL(url, host) {
+        return "PROXY %s";
+    }`, proxyAddr)
+		w.Write([]byte(pac))
+	})
+
+	go http.ListenAndServe(":8080", nil)
+
+}
+
 func startHttps() net.Listener {
 	fmt.Println("client starting...")
 	listener, err := net.Listen("tcp", CONFIGS.HTTPProxyAddress)
@@ -130,6 +192,7 @@ func startHttps() net.Listener {
 			log.Println(err)
 		}
 		go handleHTTP(conn)
+
 	}
 
 	return listener
@@ -146,7 +209,7 @@ func startSocks5() *socks5.Server {
 		log.Fatal(err)
 	}
 	log.Println("SOCKS5 listening on 127.0.0.1:8082")
-	err = server.ListenAndServe("tcp", "127.0.0.1:8082")
+	err = server.ListenAndServe("tcp", CONFIGS.SOCKSProxyAddress)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -159,6 +222,19 @@ func socksDial(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
+	}
+	if CONFIGS.FilteringEnabled {
+		if CONFIGS.WhitelistMode {
+			if !slices.Contains(CONFIGS.Whitelist, host) {
+				ctx.Done()
+				return nil, nil
+			}
+		} else {
+			if slices.Contains(CONFIGS.Blacklist, host) {
+				ctx.Done()
+				return nil, nil
+			}
+		}
 	}
 	tlsConfigs := &tls.Config{
 		InsecureSkipVerify: true, // only for testing/self-signed certs
@@ -206,15 +282,18 @@ func handleHTTP(conn net.Conn) {
 	method := list[0]
 	hostPortCombo := strings.Split(list[1], ":")
 	host := strings.TrimSpace(hostPortCombo[0])
-	port := strings.TrimSpace(hostPortCombo[1])
-	if host == "http" || host == "https" {
-		host = strings.TrimSpace(hostPortCombo[1])
-		if host == "http" {
-			port = "80"
+	if CONFIGS.FilteringEnabled {
+		if CONFIGS.WhitelistMode {
+			if !slices.Contains(CONFIGS.Whitelist, host) {
+				conn.Close()
+			}
 		} else {
-			port = "443"
+			if slices.Contains(CONFIGS.Blacklist, host) {
+				conn.Close()
+			}
 		}
 	}
+	port := strings.TrimSpace(hostPortCombo[1])
 	outbound, err := tls.Dial("tcp", CONFIGS.ControlServer, tlsConfigs)
 	if err != nil {
 		log.Println(err)

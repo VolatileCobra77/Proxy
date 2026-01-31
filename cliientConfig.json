@@ -1,5 +1,0 @@
-{
-  "server": "localhost:8080",
-  "http_proxy": ":8081",
-  "socks_proxy": ":8082"
-}
