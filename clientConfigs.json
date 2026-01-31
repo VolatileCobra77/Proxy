@@ -1,0 +1,12 @@
+{
+  "server": "localhost:8080",
+  "http_proxy": ":8081",
+  "socks_proxy": ":8082",
+  "proxy_discovery_address": ":8083",
+  "mode": "BROWSER",
+  "auto_set_system_proxy": false,
+  "filtering_enabled": false,
+  "use_whitelist": false,
+  "blocked_sites": [],
+  "allowed_sites": []
+}

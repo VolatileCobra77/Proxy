@@ -1,6 +1,6 @@
 if [ "$1" == "-c" ]
 then
-  go run ./cmd/client
+  go run ./cmd/client/core
 elif [ "$1" == "-s" ]
   then
     go run ./cmd/server

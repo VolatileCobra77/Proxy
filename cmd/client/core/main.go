@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"bufio"
@@ -58,7 +58,7 @@ const HAS_ROOT_ACCESS bool = false
 
 type ProxyManager struct {
 	httpListener  net.Listener
-	socksListener *socks5.Server
+	socksListener net.Listener
 	backendAddr   string
 
 	running bool
@@ -124,6 +124,9 @@ func main() {
 }
 
 func (manager *ProxyManager) Start(configs *Config) error {
+	if CONFIGS == nil {
+		CONFIGS = configs
+	}
 	if manager.running {
 		return nil
 	}
@@ -132,14 +135,16 @@ func (manager *ProxyManager) Start(configs *Config) error {
 	if CONFIGS.Mode == ModeBrowser {
 
 		go func() {
-			manager.httpListener = startHttps()
+			manager.httpListener = startHttps(manager)
 		}()
 	}
 	go func() {
-		manager.socksListener = startSocks5()
+		manager.socksListener = startSocks5(manager)
 
 	}()
-
+	go func() {
+		startWebserver()
+	}()
 	return nil
 }
 
@@ -148,10 +153,16 @@ func (manager *ProxyManager) Stop() error {
 		return nil
 	}
 	if manager.httpListener != nil {
-		manager.httpListener.Close()
+		err := manager.httpListener.Close()
+		if err != nil {
+			return err
+		}
 	}
 	if manager.socksListener != nil {
-		// figure out how to stop socks5 server
+		err := manager.socksListener.Close()
+		if err != nil {
+			return err
+		}
 	}
 	manager.running = false
 	return nil
@@ -174,11 +185,11 @@ func startWebserver() {
 		w.Write([]byte(pac))
 	})
 
-	go http.ListenAndServe(":8080", nil)
+	go http.ListenAndServe(CONFIGS.ProxyDiscoveryAddress, nil)
 
 }
 
-func startHttps() net.Listener {
+func startHttps(manager *ProxyManager) net.Listener {
 	fmt.Println("client starting...")
 	listener, err := net.Listen("tcp", CONFIGS.HTTPProxyAddress)
 	log.Println("HTTP Proxy listnening on :8081")
@@ -186,7 +197,7 @@ func startHttps() net.Listener {
 		log.Fatal(err)
 	}
 
-	for {
+	for manager.running {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Println(err)
@@ -199,7 +210,7 @@ func startHttps() net.Listener {
 
 }
 
-func startSocks5() *socks5.Server {
+func startSocks5(manager *ProxyManager) net.Listener {
 	conf := &socks5.Config{
 		Dial: socksDial,
 	}
@@ -209,12 +220,25 @@ func startSocks5() *socks5.Server {
 		log.Fatal(err)
 	}
 	log.Println("SOCKS5 listening on 127.0.0.1:8082")
-	err = server.ListenAndServe("tcp", CONFIGS.SOCKSProxyAddress)
+
+	listener, err := net.Listen("tcp", CONFIGS.SOCKSProxyAddress)
 	if err != nil {
 		log.Fatal(err)
 	}
+	for manager.running {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatal(err)
+		}
+		go func() {
+			err := server.ServeConn(conn)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}()
+	}
 
-	return server
+	return listener
 }
 
 func socksDial(ctx context.Context, network, addr string) (net.Conn, error) {

@@ -35,7 +35,8 @@ if "%OS_TARGETS%"=="-a" set OS_TARGETS=-wlm
 if not exist build mkdir build
 
 call :build server ./cmd/server
-call :build client ./cmd/client
+call :build client-cli ./cmd/client/core
+call :build client-gui ./cmd/client/gui
 
 echo Build complete.
 exit /b 0
@@ -48,7 +49,9 @@ set NAME=%1
 set BUILD_PATH=%2
 
 if "%NAME%"=="server" if "%BUILD_SERVER%"=="false" exit /b
-if "%NAME%"=="client" if "%BUILD_CLIENT%"=="false" exit /b
+if "%NAME%"=="client-gui" if "%BUILD_CLIENT%"=="false" exit /b
+if "%NAME%"=="client-cli" if "%BUILD_CLIENT%"=="false" exit /b
+
 
 echo Building %NAME%...
 
